@@ -1,8 +1,8 @@
-name: SSH recent targeted tests
+name: SSH recent channel validation
 
 on:
   push:
-    branches: [fix/ssh-recent-targeted-tests]
+    branches: [test/ssh-recent-channel-validation]
 
 permissions:
   contents: read
@@ -25,10 +25,27 @@ jobs:
         uses: ./.github/actions/setup-rust
       - run: flutter pub get
       - name: Check changed Dart formatting
-        run: dart format --output=none --set-exit-if-changed lib/window/app_windows.dart lib/workbench.dart test/window/app_windows_test.dart
+        run: dart format --output=none --set-exit-if-changed lib/platform/open_requests.dart test/platform/open_requests_test.dart
       - name: Analyze changed Dart files
-        if: success() || failure()
-        run: dart analyze --fatal-infos lib/window/app_windows.dart lib/workbench.dart test/window/app_windows_test.dart
-      - name: Run window regression tests
-        if: success() || failure()
-        run: flutter test test/window/app_windows_test.dart
+        run: dart analyze --fatal-infos lib/platform/open_requests.dart test/platform/open_requests_test.dart
+      - name: Verify regression fails without the fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git show e92b7cfb:lib/platform/open_requests.dart > lib/platform/open_requests.dart
+          trap 'git restore --source=HEAD -- lib/platform/open_requests.dart' EXIT
+          set +e
+          flutter test test/platform/open_requests_test.dart --plain-name 'delivers SSH recent locations kept at launch and sent live' --reporter expanded > "$RUNNER_TEMP/ssh-before.log" 2>&1
+          result=$?
+          set -e
+          cat "$RUNNER_TEMP/ssh-before.log"
+          if [ "$result" -eq 0 ]; then
+            echo '::error::The regression unexpectedly passed without the fix'
+            exit 1
+          fi
+          grep -F 'Expected:' "$RUNNER_TEMP/ssh-before.log"
+          grep -F 'Actual: []' "$RUNNER_TEMP/ssh-before.log"
+      - name: Verify regression passes with the fix
+        run: flutter test test/platform/open_requests_test.dart --plain-name 'delivers SSH recent locations kept at launch and sent live' --reporter expanded
+      - name: Run related platform and window tests
+        run: flutter test test/platform/open_requests_test.dart test/window/app_windows_test.dart --reporter expanded
